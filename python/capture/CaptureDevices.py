@@ -1,6 +1,8 @@
 import io
 import os
 import time
+import random
+
 import cv2
 import numpy as np
 
