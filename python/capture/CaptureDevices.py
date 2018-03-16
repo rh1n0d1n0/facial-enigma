@@ -17,8 +17,8 @@ BASE_IMG = np.zeros([100, 100, 3], dtype=np.uint8)
 class Capture(Thread):
     """Base class for a capture object"""
 
-    def __init__(self, max_q_size=255):
-        super().__init__()
+    def __init__(self, max_q_size=1024):
+        super().__init__(daemon=True)
         self.Q = Queue(maxsize=max_q_size)
         self.capture_sleep = 0
         self.stats = {}
@@ -46,12 +46,17 @@ class Capture(Thread):
     def read(self):
         return self.Q.get()
 
+    def snapshot(self):
+        img = self.read()
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGBA)
+        return img
+
     def stop(self):
         self.stopped = True
 
-    def gen_id(self):
-        """Returns an id consisting of 16 random ASCII characters"""
-        return ''.join([chr(random.randint(33, 126)) for n in range(16)])
+    def gen_id(self, size=32):
+        """Returns an id consisting of n random ASCII characters"""
+        return ''.join([chr(random.randint(97, 122)) for n in range(size)])
 
 
 class HttpStream(Capture):

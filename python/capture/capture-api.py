@@ -1,5 +1,6 @@
+import io
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, abort, send_file
 from PIL import Image
 
 from CaptureDevices import HttpStream as http
@@ -7,45 +8,61 @@ from CaptureDevices import LocalCapture as local
 from CaptureDevices import RtspStream as rtsp
 
 app = Flask(__name__)
-devs = {'http': http, 'local': local, 'rtsp': rtsp}
+
+# List of streaming methods
+METHODS = {'http': http, 'local': local, 'rtsp': rtsp}
+
+# JSON Response format
+SUCC = {'data': None}
+FAIL = {'error': {'code': None, 'message': None}}
+
+# Used to keep track of active captures
 captures = {}
 
-@app.route('/open-device', methods=['GET'])
-def open_device():
+@app.route('/start', methods=['POST'])
+def start_capture():
     data = request.get_json()
     device = data['device'] if 'device' in data.keys() else None
-    address = data['address'] if 'address' in data.keys() else None
     if device:
-        cap = devs[device](address)
-        cap.start()
-        captures[str(cap)] = cap
-        return jsonify({'status': 'success',
-                        'message': 'capture started successfully',
-                        'capture': str(cap)})
+        method = METHODS[device['method']](device['address'])
+        method.start()
+        captures[method.id] = method
+        result = {'data': {'capture': method.id}}
+        return jsonify(result)
 
-    return jsonify({'status': 'error', 'message': 'unable to start capture'})
+    return jsonify({'error': {'code': 500, 'message': 'unable to start capture'}})
 
-
-@app.route('/stop-device')
+@app.route('/stop', methods=['POST'])
 def stop_device():
-    pass
-
-@app.route('/get-img')
-def get_img():
     data = request.get_json()
-    device = data['device'] if 'device' in data.keys() else None
-    if device:
-        cap = captures[device]
-        m = cap.read()
-        img = matrix_to_img(m)
-        return jsonify({'img':img})
+    capture = data['capture'] if 'capture' in data.keys() else None
+    if capture:
+        cap = captures.pop(capture)
+        cap.stop()
+        cap.join()
+        return jsonify(SUCC)
 
-def matrix_to_img(mat):
-    return Image.fromarray(mat)
+    return jsonify({'error': {'code': 400, 'message': 'unable to stop capture'}})
+
+@app.route('/snapshot/<capture>', methods=['GET'])
+def snapshot(capture):
+    cap = captures[capture] if capture in captures.keys() else None
+    if cap:
+        image = cap.snapshot()
+        image = cv_matrix_to_png(image)
+        return send_file(image, mimetype='image/png')
+
+    abort(400)
+
+def cv_matrix_to_png(matrix):
+    image = Image.fromarray(matrix)
+    byte_io = io.BytesIO()
+    image.save(byte_io, 'PNG')
+    byte_io.seek(0)
+    return byte_io
 
 if __name__ == '__main__':
-    app.run()
+    app.run(host='0.0.0.0')
     for thread in captures.values():
         thread.stop()
         thread.join()
-
