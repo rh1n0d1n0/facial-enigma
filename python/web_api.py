@@ -2,6 +2,9 @@ import os
 
 from flask import Flask, jsonify
 
+from facialrecognition import FacialRecognition as fr
+from capture import CaptureDevices as cap
+
 app = Flask(__name__)
 app.config.from_object('config')
 

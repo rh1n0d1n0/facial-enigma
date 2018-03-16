@@ -1,21 +1,22 @@
 import io
 import os
 import time
-import httplib
 import cv2
 import numpy as np
 
+from http.client import HTTPConnection
 from threading import Thread
-from Queue import Queue
+from queue import Queue
 from PIL import Image as PI
 
 # Empty numpy array used as a placeholder for an image
-BASE_IMG = np.zeros([10, 10, 3], dtype=np.uint8)
+BASE_IMG = np.zeros([100, 100, 3], dtype=np.uint8)
 
 class HttpStream(Thread):
     """ Threaded class for retrieving images via a GET request """
 
     def __init__(self, host, url, max_q_size=256):
+        super().__init__()
         self.host = host
         self.url = url
         self.Q = Queue(maxsize=max_q_size)
@@ -23,7 +24,7 @@ class HttpStream(Thread):
         self.stats = []
         self.captured = False
         self.stopped = False
-        self.conn = httplib.HTTPConnection(host)
+        self.conn = HTTPConnection(host)
 
     def run(self):
         # Keep capturing images until the thread is terminated
@@ -80,6 +81,7 @@ class LocalCapture(Thread):
     """ Threaded class for capturing images via a local capture device. """
 
     def __init__(self, src=0, width=640, height=480):
+        super().__init__()
         self.stream = cv2.VideoCapture(src)
         self.stream.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         self.stream.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
@@ -110,10 +112,11 @@ class LocalCapture(Thread):
         self.stopped = True
         self.stream.release()
 
-class RTSPDeviceStream(Thread):
+class RtspStream(Thread):
     """ Threaded class for capturing images via an RTSP stream """
 
     def __init__(self, url):
+        super().__init__()
         self.url = url
         self.stream = cv2.VideoCapture(self.url)
         self.frame = BASE_IMG
