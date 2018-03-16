@@ -7,145 +7,110 @@ import numpy as np
 from http.client import HTTPConnection
 from threading import Thread
 from queue import Queue
-from PIL import Image as PI
+from PIL import Image
 
 # Empty numpy array used as a placeholder for an image
 BASE_IMG = np.zeros([100, 100, 3], dtype=np.uint8)
 
-class HttpStream(Thread):
-    """ Threaded class for retrieving images via a GET request """
+class Capture(Thread):
+    """Base class for a capture object"""
 
-    def __init__(self, host, url, max_q_size=256):
+    def __init__(self, max_q_size=255):
         super().__init__()
-        self.host = host
-        self.url = url
         self.Q = Queue(maxsize=max_q_size)
-        self.cap_sleep = 0  # Paced capture rate
-        self.stats = []
+        self.capture_sleep = 0
+        self.stats = {}
         self.captured = False
         self.stopped = False
-        self.conn = HTTPConnection(host)
+        self.empty = BASE_IMG
+        self.id = self.gen_id()
 
     def run(self):
-        # Keep capturing images until the thread is terminated
         while True:
 
             if self.stopped:
                 return
 
-            t0 = time.time()
-            self.captured, img = self.capture()
-
+            self.captured, image = self.capture()
 
             if self.captured:
-                self.Q.put(img)
+                self.Q.put(image)
 
-            self.stats.append(time.time() - t0)
-
-            if len(self.stats) > 30:
-                self.stats.pop(0)
-
-            time.sleep(self.cap_sleep)
+            time.sleep(self.capture_sleep)
 
     def capture(self):
-        self.conn.request('GET', self.url)
-        resp = self.conn.getresponse()
-        if resp.status == 200:
-
-            # Wrap in IoBytes object for PIL
-            img_bytes = io.BytesIO(resp.read())
-            pil_img = PI.open(img_bytes)
-
-            # Convert to an OpenCV matrix
-            try:
-                img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-            except:
-                return False, BASE_IMG
-
-            return True, img
-
-        print(r.status)
-        raise ConnectionError
-        return False, BASE_IMG
+        return False, self.empty
 
     def read(self):
         return self.Q.get()
 
     def stop(self):
         self.stopped = True
-        self.conn.close()
-        del self.Q
+
+    def gen_id(self):
+        """Returns an id consisting of 16 random ASCII characters"""
+        return ''.join([chr(random.randint(33, 126)) for n in range(16)])
 
 
-class LocalCapture(Thread):
-    """ Threaded class for capturing images via a local capture device. """
+class HttpStream(Capture):
+    """Class for retrieving images via a GET request"""
 
-    def __init__(self, src=0, width=640, height=480):
+    def __init__(self, host, url):
         super().__init__()
-        self.stream = cv2.VideoCapture(src)
-        self.stream.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-        self.stream.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-        self.frame = BASE_IMG
-        self.ret = False
-        self.stopped = False
-        self.stats = []
+        self.host = host
+        self.url = url
+        self.conn = HTTPConnection(host)
 
-    def run(self):
-        # Keep capturing images until the thread is stopped
-        while True:
+    def capture(self):
+        self.conn.request('GET', self.url)
+        resp = self.conn.getresponse()
 
-            if self.stopped:
-                return
+        if resp.status == 200:
 
-            t0 = time.time()
-            self.ret, self.frame = self.stream.read()
+            # Wrap image in IoBytes object for PIL
+            image = io.BytesIO(resp.read())
+            image = Image.open(image)
 
-            self.stats.append(time.time() - t0)
+            # Convert image to OpenCV matrix
+            image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
 
-            if len(self.stats) > 30:
-                self.stats.pop(0)
+            return True, image
 
-    def read(self):
-        return self.frame
+        return False, self.empty
 
     def stop(self):
         self.stopped = True
-        self.stream.release()
+        self.conn.close()
 
-class RtspStream(Thread):
-    """ Threaded class for capturing images via an RTSP stream """
+
+class LocalCapture(Capture):
+    """Class for capturing images via a local capture device"""
+
+    def __init__(self, device=0, width=640, height=480):
+        super().__init__()
+        self.cap = cv2.VideoCapture(device)
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+
+    def capture(self):
+        return self.cap.read()
+
+    def stop(self):
+        self.stopped = True
+        self.cap.release()
+
+
+class RtspStream(Capture):
+    """Threaded class for capturing images via an RTSP stream"""
 
     def __init__(self, url):
         super().__init__()
         self.url = url
-        self.stream = cv2.VideoCapture(self.url)
-        self.frame = BASE_IMG
-        self.ret = False
-        self.stopped = False
-        self.stats = []
+        self.cap = cv2.VideoCapture(self.url)
 
-    def run(self):
-        # Keep grabbing frames until the thread is stopped
-        while True:
-
-            if self.stopped:
-                return
-
-            t0 = time.time()
-            self.ret, self.frame = self.stream.read()
-
-            self.stats.append(time.time() - t0)
-
-            if not self.ret: # dont give up
-                self.stream.open(self.url)
-
-            if len(self.stats) > 30:
-                self.stats.pop(0)
-
-    def read(self):
-        return self.frame
+    def capture(self):
+        return self.cap.read()
 
     def stop(self):
         self.stopped = True
-        self.stream.release()
-
+        self.cap.release()
